@@ -1,71 +1,48 @@
-from flask import Flask, render_template, request, session
-import joblib
+import streamlit as st
+import pandas as pd
 import numpy as np
-import datetime
-import os
-from flask_bootstrap import Bootstrap
-
-app = Flask(__name__)
-app.secret_key = "california_house_predictor_secret_key"
-Bootstrap(app)
+import joblib
 
 # Load trained model
-model = joblib.load("xgb_model.pkl")
+model = joblib.load("xgb3_model.pkl")
 
-# Initialize session history if not exists
-@app.before_request
-def before_request():
-    if 'history' not in session:
-        session['history'] = []
+st.title("🏠 California Housing Price Predictor")
 
-@app.route('/', methods=['GET', 'POST'])
-def index():
-    prediction_result = None
-    
-    if request.method == 'POST':
-        # Get form data
-        longitude = float(request.form['longitude'])
-        latitude = float(request.form['latitude'])
-        housing_median_age = int(request.form['housing_median_age'])
-        total_rooms = int(request.form['total_rooms'])
-        total_bedrooms = int(request.form['total_bedrooms'])
-        population = int(request.form['population'])
-        households = int(request.form['households'])
-        median_income = float(request.form['median_income'])
-        ocean_proximity_inland = int(request.form['ocean_proximity_inland'])
-        ocean_proximity_near_bay = 1 if 'ocean_proximity_near_bay' in request.form else 0
-        ocean_proximity_near_ocean = 1 if 'ocean_proximity_near_ocean' in request.form else 0
-        rooms_per_household = float(request.form['rooms_per_household'])
-        
-        # Prepare input for prediction
-        user_data = np.array([[
-            longitude, latitude, housing_median_age, total_rooms,
-            total_bedrooms, population, households, median_income,
-            ocean_proximity_inland, ocean_proximity_near_bay,
-            ocean_proximity_near_ocean, rooms_per_household
-        ]])
-        
-        # Make prediction
-        prediction = model.predict(user_data)
-        result = round(prediction[0], 2)
-        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        
-        # Update history
-        history = session.get('history', [])
-        history.append({
-            "time": timestamp,
-            "price": result,
-            "input": user_data.tolist()[0]
-        })
-        session['history'] = history[-5:]  # Keep only last 5 predictions
-        
-        prediction_result = f"${result:,.2f}"
-    
-    return render_template('index.html', prediction_result=prediction_result, history=session.get('history', []))
+st.markdown("Adjust the sliders and select location to predict housing prices:")
 
-if __name__ == '__main__':
-    # Create templates directory if it doesn't exist
-    if not os.path.exists('templates'):
-        os.makedirs('templates')
-    
-    app.run(debug=True)
+# Input sliders based on your stats
+longitude = st.slider("longitude", -124.35, -114.31, -124.35)
+latitude = st.slider("latitude", 32.54, 41.95, 32.54)
+housing_median_age = st.slider("Housing Median Age", 1, 52, 1)
+total_rooms = st.slider("Total Rooms", 2, 39320, 2)
+total_bedrooms = st.slider("Total Bedrooms", 1, 6445, 1)
+population = st.slider("Population", 3, 35682, 3)
+households = st.slider("Households", 1, 6082, 1)
+median_income = st.slider("Median Income", 0.5, 15.0, .5)
+
+# One-hot encoded location selection
+location = st.radio("Proximity to Ocean", ("<1H OCEAN", "INLAND", "ISLAND", "NEAR BAY", "NEAR OCEAN"))
+
+# One-hot encode the selected location
+location_cols = ["<1H OCEAN", "INLAND", "ISLAND", "NEAR BAY", "NEAR OCEAN"]
+location_vals = [1 if loc == location else 0 for loc in location_cols]
+
+# Assemble input
+input_df = pd.DataFrame([[
+    longitude, latitude, housing_median_age, total_rooms,
+    total_bedrooms, population, households, median_income,
+    *location_vals
+]], columns=[
+    'longitude', 'latitude', 'housing_median_age', 'total_rooms',
+    'total_bedrooms', 'population', 'households', 'median_income',
+    '<1H OCEAN', 'INLAND', 'ISLAND', 'NEAR BAY', 'NEAR OCEAN'
+])
+
+# Predict and display
+if st.button("Predict"):
+    prediction = model.predict(input_df)[0]
+    st.session_state.prediction_result = int(prediction)
+
+# Display the prediction if it exists
+if "prediction_result" in st.session_state:
+    st.success(f"🏡 Predicted Median House Value: **${st.session_state.prediction_result:,}**")
